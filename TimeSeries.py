@@ -1,9 +1,3 @@
-'''
-Created on Jun 8, 2013
-
-@author: Ryan
-'''
-
 from Sounding import Sounding
 
 class TimeSeries:
@@ -85,9 +79,8 @@ class TimeSeries:
 if __name__ == "__main__":
     
     print("Testing TimeSeries: ")
-    path = "nam4km/2017090100Z_nam4km_kmso.buf"
+    path = "nam4km_mso/17082600.nam4km_kmso.buf"
     ts = TimeSeries.fromFile(path)
 
-    print("Number of items:", sum(1 for _ in iter(ts)))
-
-    print("Number 3 is", ts[2])
+    print("Number of items: %d" % sum(1 for _ in iter(ts)))
+    print("Number 3 is %s" % str(ts[2]))

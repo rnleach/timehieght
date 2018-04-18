@@ -1,11 +1,11 @@
-'''
-@author: Ryan
-'''
-
 import re
 import datetime as dt
 
 import numpy as np
+
+from math import sin
+from math import cos
+from math import pi
 
 class Sounding:
     '''
@@ -51,6 +51,8 @@ class Sounding:
         self.thetaE   = None   # equivalent potential temp in K
         self.windDir  = None   # wind direction
         self.windSpd  = None   # wind speed in knots
+        self.uWind    = None   # west to east wind
+        self.vWind    = None   # south to north wind
         self.omega    = None   # vertical velocity in microbars/sec
         self.cloud    = None   # Cloud fraction in percent
         self.hgt      = None   # Height in feet
@@ -235,6 +237,17 @@ class Sounding:
             self.cloud = list(map(float, data[headerMapping["CFRL"]::numCols]))
         if "HGHT" in headers:
             self.hgt = list(map(float, data[headerMapping["HGHT"]::numCols]))
+
+        # Function to calculate translate (spd,dir) into (u,v)
+        def spd_dir_to_uv(pair):
+            spd,direct = pair
+            direct_rad = direct/180.0*pi
+            return (-spd*sin(direct_rad), -spd*cos(direct_rad))
+
+        if self.windSpd is not None and self.windDir is not None:
+            sd_pairs = zip(self.windSpd, self.windDir)
+            uv_pairs = map(spd_dir_to_uv, sd_pairs)
+            self.uWind, self.vWind = zip(*list(uv_pairs))
         
         
     def __str__(self):

@@ -12,9 +12,7 @@ import os.path as path
 import os
 
 from math import exp
-from math import sin
-from math import cos
-from math import pi
+from math import sqrt
 
 ################################################################################
 #                        Global Configuration Items                            #
@@ -31,20 +29,30 @@ def val_hgts():
 def lapse_hgts():
     return list(range(50,6100,150))
 
+# Key features, times in UTC
+evening_of_27 = datetime.datetime(2017,8,28,0) # large growth period
+evening_of_26 = datetime.datetime(2017,8,27,0) # large growth period
+evening_of_second = datetime.datetime(2017,9,3,0) # RFW, large growth period
+big_run_time = datetime.datetime(2017,9,4,2) # RFW, largest growth burn period
+
+times_of_interest = [
+            evening_of_26,
+            evening_of_27,
+            evening_of_second, 
+            big_run_time,
+        ]
+
+# Key features, elevations
+seeley = 1218     # Seeley Lake
+morrell_lo = 2377 # Morrell Lookout
+
+key_elevations = [seeley, morrell_lo]
 ################################################################################
 #                      End Global Configuration Items                          #
 ################################################################################
 def rh(pair):
     t,dp = pair
     return 100*(exp((17.625*dp)/(243.04+dp))/exp((17.625*t)/(243.04+t)))
-
-def spd_dir_to_u(pair):
-    spd,direct = pair
-    return -spd*sin(direct/180.0*pi)
-
-def spd_dir_to_v(pair):
-    spd,direct = pair
-    return -spd*cos(direct/180.0*pi)
 
 def interp_agl(sounding, tgt_height, attr):
     profile = zip(sounding.hgt, getattr(sounding,attr))
@@ -92,6 +100,40 @@ def sfc_lapse_rates_agl(sounding):
 
     return (np.array(lr), np.array(asl))
 
+def sfc_to_level_bulk_shear(sounding):
+    hgt = lapse_hgts()
+    u_vals = [interp_agl(sounding,h,"uWind") for h in hgt]
+    v_vals = [interp_agl(sounding,h,"vWind") for h in hgt]
+
+    h0 = hgt[0]
+    u0 = u_vals[0]
+    v0 = v_vals[0]
+
+    bs = []
+    asl = []
+
+    for i in range(1,min(len(u_vals),len(v_vals))):
+        h = hgt[i]
+        u = u_vals[i]
+        v = v_vals[i]
+
+        # dh = h - h0
+        # du = u - u0
+        # dv = v - v0
+
+        # u_shear = du/dh
+        # v_shear = dv/dh
+
+        u_shear = u - u0
+        v_shear = v - v0
+
+        shear_mag = sqrt(u_shear * u_shear + v_shear * v_shear)
+
+        bs.append(shear_mag)
+        asl.append(h + sounding.elevation)
+
+    return (np.array(bs), np.array(asl))
+
 def omega_agl(sounding):
     hgt = val_hgts()
     omg = [interp_agl(sounding,h,"omega")*10.0 for h in hgt]
@@ -108,25 +150,18 @@ def wind_speed_agl(sounding):
 
 def u_wind_agl(sounding):
     hgt = val_hgts()
-    spd = [interp_agl(sounding,h,"windSpd")*1.15708 for h in hgt]
-    direct = [interp_agl(sounding,h,"windDir") for h in hgt]
-    pairs = zip(spd,direct)
-    u_vals = [spd_dir_to_u(p) for p in pairs]
+    u_vals = [interp_agl(sounding, h, "uWind")*1.15708 for h in hgt]
     asl = [h+sounding.elevation for h in hgt]
 
     return (np.array(u_vals), np.array(asl))
 
 def v_wind_agl(sounding):
     hgt = val_hgts()
-    spd = [interp_agl(sounding,h,"windSpd")*1.15708 for h in hgt]
-    direct = [interp_agl(sounding,h,"windDir") for h in hgt]
-    pairs = zip(spd,direct)
-    v_vals = [spd_dir_to_v(p) for p in pairs]
+    v_vals = [interp_agl(sounding, h, "vWind")*1.15708 for h in hgt]
     asl = [h+sounding.elevation for h in hgt]
 
     return (np.array(v_vals), np.array(asl))
     
-
 def rh_agl(sounding):
     hgt = val_hgts()
     tmp = [interp_agl(sounding,h,"temp") for h in hgt]
@@ -254,26 +289,13 @@ def plot_values(target_dir, f, ax, val_func, conts, constsf, cmap_name, title, c
 def plot_key_features(ax, elevations, base_time, max_dt):
     min_elevation, max_elevation = elevations
     
-    # Big run on the evening of the third
-    big_run_time = datetime.datetime(2017,9,4,2) # UTC time
-    # The evening of the second, also a red flag warning
-    evening_of_second = datetime.datetime(2017,9,3,0) # UTC time
-    evening_of_27 = datetime.datetime(2017,8,28,0)
-    evening_of_26 = datetime.datetime(2017,8,27,0)
-
-    times_of_interest = [evening_of_second, big_run_time,evening_of_27,evening_of_26]
     for tm in times_of_interest:
         td = (tm - base_time).total_seconds() / 3600
         if td < 0 or td > max_dt:
             continue
         ax.plot([td,td],[min_elevation,max_elevation], linestyle='dashed', linewidth=2.0, color='black')
 
-    # Seeley Lake
-    seeley = 1218
-    mtns = 2000
-
-    elevations = [seeley, mtns]
-    for e in elevations:
+    for e in key_elevations:
         if e < min_elevation or e > max_elevation:
             continue
         ax.plot([0,max_dt],[e,e], linestyle='dashed', linewidth=0.5, color='black')
@@ -303,7 +325,6 @@ if __name__ == "__main__":
         f.set_dpi(300)
 
         # Lapse rate plots
-        #plot_lapse_rates(target_dir, f, axarr[0], local_lapse_rates_agl, "Lapse rate")
         plot_lapse_rates(target_dir, f, axarr[0], sfc_lapse_rates_agl,"Surface to * average lapse rate")
 
         # Omega Plot
@@ -344,9 +365,27 @@ if __name__ == "__main__":
 
         f.text(0.45,0.04,"Midnight MST (GMT-7)",horizontalalignment='center')
 
-        # Done with first one
+        # Done with second one
         f.savefig(target_dir+"_B.png")
-        
-        
 
+        # Start the next one
+        plt.figure()
+
+        f, axarr = plt.subplots(2, sharex=True)
+
+        f.set_size_inches(plot_width,plot_height)
+        f.set_dpi(300)
+
+        # Bulk shear
+        conts = [0.0, 10, 20, 30, 40, 50]
+        contsf = [v for v in np.arange(0.0,50,0.50)]
+        plot_values(target_dir, f, axarr[0], sfc_to_level_bulk_shear, conts, contsf, "rainbow","Sfc to * bulk shear","mph")
+
+        # Lapse rate
+        plot_lapse_rates(target_dir, f, axarr[1], local_lapse_rates_agl, "Lapse rate")
+
+        f.text(0.45,0.04,"Midnight MST (GMT-7)",horizontalalignment='center')
+
+        # Done with second one
+        f.savefig(target_dir+"_C.png")
         
