@@ -17,6 +17,8 @@ from math import sqrt
 ################################################################################
 #                        Global Configuration Items                            #
 ################################################################################
+target_dirs = ["nam4km_mso", "nam_mso", "gfs3_mso"]
+
 startdate = datetime.datetime(2017,9,1,0)
 enddate = datetime.datetime(2017,9,5,0)
 
@@ -47,6 +49,7 @@ seeley = 1218     # Seeley Lake
 morrell_lo = 2377 # Morrell Lookout
 
 key_elevations = [seeley, morrell_lo]
+
 ################################################################################
 #                      End Global Configuration Items                          #
 ################################################################################
@@ -101,11 +104,11 @@ def helicity(sounding):
         u = u_vals[i]
         v = v_vals[i]
 
-        h0 = hgt[i-1]
+        # h0 = hgt[i-1]
         v0 = v_vals[i-1]
         u0 = u_vals[i-1]
 
-        dz = h - h0
+        # dz = h - h0
         du = (u-u0) 
         dv = (v-v0) 
 
@@ -144,7 +147,7 @@ def sfc_to_level_bulk_shear(sounding):
     hgt, u_vals = make_profile(sounding, "uWind", lapse_hgts)
     _, v_vals = make_profile(sounding, "vWind", lapse_hgts)
 
-    h0 = hgt[0]
+    # h0 = hgt[0]
     u0 = u_vals[0]
     v0 = v_vals[0]
 
@@ -223,22 +226,11 @@ def get_profiles(target_dir):
 
     return get_profiles.profiles
 
-def make_lapse_rate_arrays(target_dir, lapse_rate_func):
-    profiles = get_profiles(target_dir)
-
-    vals = np.array([lapse_rate_func(p)[0] for p in profiles]).transpose()
-    levels = local_lapse_rates_agl(profiles[0])[1]
-    times = [x.time for x in profiles]
-    base_time = times[0]
-    dt = [(x.time-base_time).total_seconds()/3600 for x in profiles]
-
-    return(times, dt, levels, vals)
-
 def make_value_arrays(target_dir, values_func):
     profiles = get_profiles(target_dir)
     
     vals = np.array([values_func(p)[0] for p in profiles]).transpose()
-    levels = omega_agl(profiles[0])[1]
+    levels = values_func(profiles[0])[1]
     times = [x.time for x in profiles]
     base_time = times[0]
     dt = [(x.time-base_time).total_seconds()/3600 for x in profiles]
@@ -263,34 +255,6 @@ def setup_x_axis(base_time, max_dt, ax):
 
     ax.set_xticks(xticks)
     ax.set_xticklabels(xlabels)
-
-def plot_lapse_rates(target_dir, f, ax, lapse_func, conts, contsf, color_map_name, title, cbar_label):
-    tms, dt, levels, vals = make_lapse_rate_arrays(target_dir, lapse_func)
-
-    base_time = tms[0]
-    X,Y = np.meshgrid(dt,levels)
-    color_map = cm.get_cmap(color_map_name)
-
-    # Filled contours
-    CF = ax.contourf(X, Y, vals, contsf, cmap=color_map)
-    CF.cmap.set_under('white')
-    CF.cmap.set_over('white')
-    cbar = f.colorbar(CF, ax=ax)
-
-    # Lines
-    CS = ax.contour(X, Y, vals, conts, colors='black', linestyles='solid', linewidths=0.5)
-    cbar.add_lines(CS)
-    cbar.set_ticks(conts)
-
-    # Title and labels
-    ax.set_title(title)
-    cbar.ax.set_ylabel(cbar_label)
-
-    setup_x_axis(base_time, max(dt), ax)
-    setup_y_axis((min(levels),max(levels)), ax)
-    
-    # Show interesting times and levels
-    plot_key_features(ax, (min(levels),max(levels)), base_time, max(dt))
 
 def plot_values(target_dir, f, ax, val_func, conts, constsf, cmap_name, title, cbar_label):
     tms, dt, levels, vals = make_value_arrays(target_dir, val_func)
@@ -331,10 +295,30 @@ def plot_key_features(ax, elevations, base_time, max_dt):
             continue
         ax.plot([0,max_dt],[e,e], linestyle='dashed', linewidth=0.5, color='black')
 
+################################################################################
+#                           Declaration of plots                               #
+################################################################################
+plots = [
+#       (function_to_plot,        contours,                              filled countours,                      color map name, title,                             colorbar label),
+    [
+        (sfc_lapse_rates_agl,     [ -9.8, -7, 0],                        [v for v in np.arange(-15.0,25,0.25)], "gist_rainbow", "Surface to * average lapse rate", "C/km"        ),
+        (omega_agl,               [v for v in np.arange(-20.0, 21, 5)],  [v for v in np.arange(-20.0,20,0.25)], "RdBu",         "Pressure vertical velocity",      "hPa/s"       ),
+        (rh_agl,                  [v for v in np.arange(0.0, 110, 20)],  [v for v in np.arange(0.0,100.0,0.5)], "RdYlGn",       "Relative Humidity",               "%"           ),
+    ],
+    [
+        (u_wind_agl,              [v for v in np.arange(-60.0,60,10.0)], [v for v in np.arange(-60.0,60,1.0)], "RdBu_r",        "U-wind speed",                    "mph"         ),
+        (v_wind_agl,              [v for v in np.arange(-60.0,60,10.0)], [v for v in np.arange(-60.0,60,1.0)], "RdBu_r",        "V-wind speed",                    "mph"         ),
+        (wind_speed_agl,          [v for v in np.arange(0.0,60,10.0)],   [v for v in np.arange(0.0,60.0,0.5)], "rainbow",       "Wind Speed",                      "mph"         ),
+    ],
+    [
+        (sfc_to_level_bulk_shear, [0.0, 10, 20, 30, 40, 50],             [v for v in np.arange(0.0,50,0.50)],   "rainbow",      "Sfc to * bulk shear",             "mph"         ),
+        (local_lapse_rates_agl,   [ -9.8, -7, 0],                        [v for v in np.arange(-15.0,25,0.25)], "gist_rainbow", "Lapse Rate",                      "C/km"        ),
+        (helicity,                [h for h in np.arange(-150, 150, 30)], [v for v in np.arange(-150, 150, 3)],  "gist_rainbow", "Helicity",                        "$m^2$/$s^2$" ),
+    ],
+]
+
 if __name__ == "__main__":
 
-    target_dirs = ["nam4km_mso", "nam_mso", "gfs3_mso"]
-   
     matplotlib.rcParams['xtick.direction'] = 'out'
     matplotlib.rcParams['ytick.direction'] = 'out'
 
@@ -348,84 +332,23 @@ if __name__ == "__main__":
 
     for target_dir in target_dirs:
 
-        plt.figure()
+        for page_num, page in enumerate(plots):
 
-        f, axarr = plt.subplots(3, sharex=True)
+            # Start the next one
+            plt.figure()
 
-        f.set_size_inches(plot_width,plot_height)
-        f.set_dpi(300)
+            f, axarr = plt.subplots(len(page), sharex=True)
 
-        # Lapse rate plots
-        conts = [ -9.8, -7, 0]
-        contsf = [v for v in np.arange(-15.0,25,0.25)]
-        plot_lapse_rates(target_dir, f, axarr[0], sfc_lapse_rates_agl, conts, contsf, "gist_rainbow", "Surface to * average lapse rate", "C/km")
+            f.set_size_inches(plot_width,plot_height)
+            f.set_dpi(300)
 
-        # Omega Plot
-        conts = [ -20.0, -15, -10, -5, 0, 5, 10, 15, 20]
-        contsf = [v for v in np.arange(-20.0,20,0.25)]
-        plot_values(target_dir, f, axarr[1], omega_agl, conts, contsf, "RdBu",'Pressure vertical velocity','hPa/s')
+            for row, plot in enumerate(page):
 
-        # RH plot
-        conts = [ 0.0, 20.0, 40.0, 60.0, 80.0, 100.0]
-        contsf = [v for v in np.arange(0.0,100.0,0.5)]
-        plot_values(target_dir, f, axarr[2], rh_agl, conts, contsf, "RdYlGn", "Relative Humidity", "%")
+                func, conts, contsf, cmap_name, title, cbar_label = plot
+                plot_values(target_dir, f, axarr[row], func, conts, contsf, cmap_name, title, cbar_label)            
 
-        f.text(0.45,0.05,"Midnight MST (GMT-7)",horizontalalignment='center')
+            f.text(0.45,0.04,"Midnight MST (GMT-7)",horizontalalignment='center')
 
-        # Done with first one
-        f.savefig(target_dir+"_A.png")
-
-        # Start the next one
-        plt.figure()
-
-        f, axarr = plt.subplots(3, sharex=True)
-
-        f.set_size_inches(plot_width,plot_height)
-        f.set_dpi(300)
-
-        # U-Wind
-        conts = [ -60.0, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60]
-        contsf = [v for v in np.arange(-60.0,60,1.0)]
-        plot_values(target_dir, f, axarr[0], u_wind_agl, conts, contsf, "RdBu_r"," U-wind speed","mph")
-
-        # V-Wind
-        plot_values(target_dir, f, axarr[1], v_wind_agl, conts, contsf, "RdBu_r","V-wind speed","mph")
-
-        # Wind speed Plots
-        conts = [ 0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
-        contsf = [v for v in np.arange(0.0,60.0,0.5)]
-        plot_values(target_dir, f, axarr[2], wind_speed_agl, conts, contsf, "rainbow","Wind speed","mph")
-
-        f.text(0.45,0.04,"Midnight MST (GMT-7)",horizontalalignment='center')
-
-        # Done with second one
-        f.savefig(target_dir+"_B.png")
-
-        # Start the next one
-        plt.figure()
-
-        f, axarr = plt.subplots(3, sharex=True)
-
-        f.set_size_inches(plot_width,plot_height)
-        f.set_dpi(300)
-
-        # Bulk shear
-        conts = [0.0, 10, 20, 30, 40, 50]
-        contsf = [v for v in np.arange(0.0,50,0.50)]
-        plot_values(target_dir, f, axarr[0], sfc_to_level_bulk_shear, conts, contsf, "rainbow","Sfc to * bulk shear","mph")
-
-        # Lapse rate
-        conts = [ -9.8, -7, 0]
-        contsf = [v for v in np.arange(-15.0,25,0.25)]
-        plot_lapse_rates(target_dir, f, axarr[1], local_lapse_rates_agl, conts, contsf, "gist_rainbow", "Lapse rate", "C/km")
-
-        # Helicity
-        conts = [h for h in np.arange(-150, 150, 30)]
-        contsf = [v for v in np.arange(-150, 150, 3)]
-        plot_values(target_dir, f, axarr[2], helicity, conts, contsf, "gist_rainbow", "Helicity","$m^2$/$s^2$")
-
-        f.text(0.45,0.04,"Midnight MST (GMT-7)",horizontalalignment='center')
-
-        # Done with second one
-        f.savefig(target_dir+"_C.png")
+            # Save it.
+            f.savefig(target_dir + "_" + str(page_num) + ".png")
         
