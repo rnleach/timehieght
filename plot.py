@@ -1,4 +1,4 @@
-import TimeSeries as ts
+from TimeSeries import TimeSeries
 import Sounding
 
 import datetime
@@ -33,7 +33,7 @@ def lapse_hgts():
 evening_of_27 = datetime.datetime(2017,8,28,0) # large growth period
 evening_of_26 = datetime.datetime(2017,8,27,0) # large growth period
 evening_of_second = datetime.datetime(2017,9,3,0) # RFW, large growth period
-big_run_time = datetime.datetime(2017,9,4,2) # RFW, largest growth burn period
+big_run_time = datetime.datetime(2017,9,4,0) # RFW, largest growth burn period
 
 times_of_interest = [
             evening_of_26,
@@ -54,17 +54,20 @@ def rh(pair):
     t,dp = pair
     return 100*(exp((17.625*dp)/(243.04+dp))/exp((17.625*t)/(243.04+t)))
 
-def interp_agl(sounding, tgt_height, attr):
+def make_profile(sounding, attr, hgt_func):
     profile = zip(sounding.hgt, getattr(sounding,attr))
     profile = filter(lambda x: x[0] != -9999.0 and x[1] != -9999.0, profile)
     profile = map(lambda x: (x[0]-sounding.elevation, x[1]), profile)
-    hgt, val = zip(*list(profile))
+    snd_hgt, snd_val = zip(*list(profile))
 
-    return np.interp(tgt_height, hgt, val, -9999.0, -9999.0)
+    val = [np.interp(h, snd_hgt, snd_val, -9999.0,-9999.0) for h in hgt_func()]
+    hgt = [h+sounding.elevation for h in hgt_func()]
+
+    return (hgt,val)
 
 def local_lapse_rates_agl(sounding):
-    hgt = lapse_hgts()
-    tmp = [interp_agl(sounding,h,"temp") for h in hgt]
+
+    hgt, tmp = make_profile(sounding, "temp", lapse_hgts)
 
     lr = []
     asl = []
@@ -77,13 +80,50 @@ def local_lapse_rates_agl(sounding):
         lapse_rate = (t-t0)/(h-h0)*1000.0
         height = (h+h0)/2.0
         lr.append(lapse_rate)
-        asl.append(height + sounding.elevation)
+        asl.append(height)
 
     return (np.array(lr), np.array(asl))
 
+def helicity(sounding):
+
+    hgt, u_vals = make_profile(sounding, "uWind", lapse_hgts)
+    _, v_vals = make_profile(sounding, "vWind", lapse_hgts)
+
+    # Convert to m/s
+    u_vals = list(map(lambda x: x * 0.5144, u_vals))
+    v_vals = list(map(lambda x: x * 0.5144, v_vals))
+
+    hy = []
+    asl = []
+
+    for i in range(1,min(len(v_vals),len(u_vals))):
+        h = hgt[i]
+        u = u_vals[i]
+        v = v_vals[i]
+
+        h0 = hgt[i-1]
+        v0 = v_vals[i-1]
+        u0 = u_vals[i-1]
+
+        dz = h - h0
+        du = (u-u0) 
+        dv = (v-v0) 
+
+        mu = (u+u0)/2.0
+        mv = (v+v0)/2.0
+
+        hlcty =  (mu * dv  - mv * du)
+        
+        hy.append(hlcty)
+        asl.append(h)
+
+    for i in range(len(hy)-1, -1,-1):
+        hy[i] = sum(hy[:i])
+
+    return (np.array(hy), np.array(asl))
+
 def sfc_lapse_rates_agl(sounding):
-    hgt = lapse_hgts()
-    tmp = [interp_agl(sounding,h,"temp") for h in hgt]
+    hgt, tmp = make_profile(sounding, "temp", lapse_hgts)
 
     h0 = hgt[0]
     t0 = tmp[0]
@@ -96,14 +136,13 @@ def sfc_lapse_rates_agl(sounding):
         t = tmp[i]
         lapse_rate = (t-t0)/(h-h0)*1000.0
         lr.append(lapse_rate)
-        asl.append(h + sounding.elevation)
+        asl.append(h)
 
     return (np.array(lr), np.array(asl))
 
 def sfc_to_level_bulk_shear(sounding):
-    hgt = lapse_hgts()
-    u_vals = [interp_agl(sounding,h,"uWind") for h in hgt]
-    v_vals = [interp_agl(sounding,h,"vWind") for h in hgt]
+    hgt, u_vals = make_profile(sounding, "uWind", lapse_hgts)
+    _, v_vals = make_profile(sounding, "vWind", lapse_hgts)
 
     h0 = hgt[0]
     u0 = u_vals[0]
@@ -117,77 +156,72 @@ def sfc_to_level_bulk_shear(sounding):
         u = u_vals[i]
         v = v_vals[i]
 
-        # dh = h - h0
-        # du = u - u0
-        # dv = v - v0
-
-        # u_shear = du/dh
-        # v_shear = dv/dh
-
         u_shear = u - u0
         v_shear = v - v0
 
         shear_mag = sqrt(u_shear * u_shear + v_shear * v_shear)
 
         bs.append(shear_mag)
-        asl.append(h + sounding.elevation)
+        asl.append(h)
 
     return (np.array(bs), np.array(asl))
 
 def omega_agl(sounding):
-    hgt = val_hgts()
-    omg = [interp_agl(sounding,h,"omega")*10.0 for h in hgt]
-    asl = [h+sounding.elevation for h in hgt]
-
+    asl, omg = make_profile(sounding, "omega", val_hgts)
+    omg = list(map(lambda x: x*10.0, omg))
     return (np.array(omg), np.array(asl))
 
 def wind_speed_agl(sounding):
-    hgt = val_hgts()
-    spd = [interp_agl(sounding,h,"windSpd")*1.15708 for h in hgt]
-    asl = [h+sounding.elevation for h in hgt]
-
+    asl, spd = make_profile(sounding, "windSpd", val_hgts)
+    spd = list(map(lambda x: x*1.15708, spd))
     return (np.array(spd), np.array(asl))
 
 def u_wind_agl(sounding):
-    hgt = val_hgts()
-    u_vals = [interp_agl(sounding, h, "uWind")*1.15708 for h in hgt]
-    asl = [h+sounding.elevation for h in hgt]
-
+    asl, u_vals = make_profile(sounding, "uWind", val_hgts)
+    u_vals = list(map(lambda x: x*1.15708, u_vals))
     return (np.array(u_vals), np.array(asl))
 
 def v_wind_agl(sounding):
-    hgt = val_hgts()
-    v_vals = [interp_agl(sounding, h, "vWind")*1.15708 for h in hgt]
-    asl = [h+sounding.elevation for h in hgt]
-
+    asl, v_vals = make_profile(sounding, "vWind", val_hgts)
+    v_vals = list(map(lambda x: x*1.15708, v_vals))
     return (np.array(v_vals), np.array(asl))
     
 def rh_agl(sounding):
-    hgt = val_hgts()
-    tmp = [interp_agl(sounding,h,"temp") for h in hgt]
-    dp = [interp_agl(sounding,h,"dewpoint") for h in hgt]
+    asl, tmp = make_profile(sounding, "temp", val_hgts)
+    _, dp = make_profile(sounding, "dewpoint", val_hgts)
     pairs = zip(tmp,dp)
     rh_vals = [rh(p) for p in pairs]
-    asl = [h+sounding.elevation for h in hgt]
 
     return (np.array(rh_vals), np.array(asl))
 
 def get_profiles(target_dir):
-    files = os.listdir(target_dir)
+    # Remember what directory we loaded last, and cache it.
+    if "loadedDirectory" not in get_profiles.__dict__ or get_profiles.loadedDirectory != target_dir:
+        get_profiles.loadedDirectory = target_dir
+    
+        # Load the files
+        files = os.listdir(target_dir)
 
-    profiles = [ts.TimeSeries.fromFile(path.join(target_dir,f)) for f in files]
-    profiles = [item for sublist in profiles for item in sublist if item.time < enddate and item.time > startdate]
-    p_dict = {}
-    for p in profiles:
-        key = p.time.strftime("%Y%m%d%H%M")
-        if key not in p_dict.keys():
-            p_dict[key] = p
-        elif p.leadTime < p_dict[key].leadTime:
-            p_dict[key] = p
-    profiles = list(p_dict.values())
-    profiles.sort(key=lambda x: x.time)
+        paths = (path.join(target_dir,f) for f in files)
+        time_series_list = map(TimeSeries.fromFile, paths)
 
-    return profiles
+        p_dict = {}
+        for ts in time_series_list:
+            for sounding in ts:
+                if sounding.time > enddate or sounding.time < startdate:
+                    continue
+                key = sounding.time.strftime("%Y%m%d%H%M")
+                if key not in p_dict.keys():
+                    p_dict[key] = sounding
+                elif sounding.leadTime < p_dict[key].leadTime:
+                    p_dict[key] = sounding
+
+        profiles_list = list(p_dict.values())
+        profiles_list.sort(key=lambda x: x.time)
+
+        get_profiles.profiles = profiles_list
+
+    return get_profiles.profiles
 
 def make_lapse_rate_arrays(target_dir, lapse_rate_func):
     profiles = get_profiles(target_dir)
@@ -230,15 +264,12 @@ def setup_x_axis(base_time, max_dt, ax):
     ax.set_xticks(xticks)
     ax.set_xticklabels(xlabels)
 
-def plot_lapse_rates(target_dir, f, ax, lapse_func, title):
+def plot_lapse_rates(target_dir, f, ax, lapse_func, conts, contsf, color_map_name, title, cbar_label):
     tms, dt, levels, vals = make_lapse_rate_arrays(target_dir, lapse_func)
 
     base_time = tms[0]
-
     X,Y = np.meshgrid(dt,levels)
-    conts = [ -9.8, -7, 0]
-    contsf = [v for v in np.arange(-15.0,25,0.25)]
-    color_map = cm.get_cmap("gist_rainbow")
+    color_map = cm.get_cmap(color_map_name)
 
     # Filled contours
     CF = ax.contourf(X, Y, vals, contsf, cmap=color_map)
@@ -247,13 +278,13 @@ def plot_lapse_rates(target_dir, f, ax, lapse_func, title):
     cbar = f.colorbar(CF, ax=ax)
 
     # Lines
-    CS = ax.contour(X, Y, vals,conts, colors='black', linestyles='solid', linewidths=0.5)
+    CS = ax.contour(X, Y, vals, conts, colors='black', linestyles='solid', linewidths=0.5)
     cbar.add_lines(CS)
     cbar.set_ticks(conts)
 
     # Title and labels
     ax.set_title(title)
-    cbar.ax.set_ylabel('C/km')
+    cbar.ax.set_ylabel(cbar_label)
 
     setup_x_axis(base_time, max(dt), ax)
     setup_y_axis((min(levels),max(levels)), ax)
@@ -325,7 +356,9 @@ if __name__ == "__main__":
         f.set_dpi(300)
 
         # Lapse rate plots
-        plot_lapse_rates(target_dir, f, axarr[0], sfc_lapse_rates_agl,"Surface to * average lapse rate")
+        conts = [ -9.8, -7, 0]
+        contsf = [v for v in np.arange(-15.0,25,0.25)]
+        plot_lapse_rates(target_dir, f, axarr[0], sfc_lapse_rates_agl, conts, contsf, "gist_rainbow", "Surface to * average lapse rate", "C/km")
 
         # Omega Plot
         conts = [ -20.0, -15, -10, -5, 0, 5, 10, 15, 20]
@@ -371,7 +404,7 @@ if __name__ == "__main__":
         # Start the next one
         plt.figure()
 
-        f, axarr = plt.subplots(2, sharex=True)
+        f, axarr = plt.subplots(3, sharex=True)
 
         f.set_size_inches(plot_width,plot_height)
         f.set_dpi(300)
@@ -382,7 +415,14 @@ if __name__ == "__main__":
         plot_values(target_dir, f, axarr[0], sfc_to_level_bulk_shear, conts, contsf, "rainbow","Sfc to * bulk shear","mph")
 
         # Lapse rate
-        plot_lapse_rates(target_dir, f, axarr[1], local_lapse_rates_agl, "Lapse rate")
+        conts = [ -9.8, -7, 0]
+        contsf = [v for v in np.arange(-15.0,25,0.25)]
+        plot_lapse_rates(target_dir, f, axarr[1], local_lapse_rates_agl, conts, contsf, "gist_rainbow", "Lapse rate", "C/km")
+
+        # Helicity
+        conts = [h for h in np.arange(-150, 150, 30)]
+        contsf = [v for v in np.arange(-150, 150, 3)]
+        plot_values(target_dir, f, axarr[2], helicity, conts, contsf, "gist_rainbow", "Helicity","$m^2$/$s^2$")
 
         f.text(0.45,0.04,"Midnight MST (GMT-7)",horizontalalignment='center')
 

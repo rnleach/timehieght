@@ -238,7 +238,7 @@ class Sounding:
         if "HGHT" in headers:
             self.hgt = list(map(float, data[headerMapping["HGHT"]::numCols]))
 
-        # Function to calculate translate (spd,dir) into (u,v)
+        # Function to translate (spd,dir) into (u,v)
         def spd_dir_to_uv(pair):
             spd,direct = pair
             direct_rad = direct/180.0*pi
